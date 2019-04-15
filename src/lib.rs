@@ -18,9 +18,11 @@ mod frame;
 mod mask;
 mod message;
 mod opcode;
+mod upgrade;
 
 pub use crate::message::{Message, MessageCodec};
 pub use crate::opcode::Opcode;
+pub use crate::upgrade::UpgradeCodec;
 
 use std::error;
 use std::result;
