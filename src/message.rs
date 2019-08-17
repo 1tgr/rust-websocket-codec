@@ -140,14 +140,22 @@ impl Decoder for MessageCodec {
             let (header, data_range) = if let Some(tuple) = FrameHeader::validate(&src)? {
                 tuple
             } else {
+                // The buffer isn't big enough for the frame header. Reserve additional space for a frame header,
+                // plus reasonable extensions.
+                src.reserve(512);
                 self.interrupted_message = state;
                 return Ok(None);
             };
 
             if data_range.end > src.len() {
+                // The buffer contains the frame header but it's not big enough for the data. Reserve additional
+                // space for the frame data, plus the next frame header.
+                src.reserve(data_range.end + 512);
                 self.interrupted_message = state;
                 return Ok(None);
             }
+
+            // The buffer contains the frame header and all of the data. We can parse it and return Ok(Some(...)).
 
             let data = src.split_to(data_range.end)
                 .freeze()
@@ -225,6 +233,21 @@ mod tests {
     use crate::mask::Masker;
     use crate::opcode::Opcode;
 
+    fn decode<D: Decoder>(decoder: &mut D, mut src: &[u8]) -> Result<D::Item, D::Error> {
+        let mut decoder_buf = BytesMut::new();
+        loop {
+            if let Some(result) = decoder.decode(&mut decoder_buf)? {
+                assert_eq!(0, decoder_buf.len(), "expected decoder to consume the whole buffer");
+                return Ok(result);
+            }
+
+            let n = decoder_buf.remaining_mut().min(src.len());
+            assert!(n > 0, "expected decoder to reserve at least one byte");
+            decoder_buf.put_slice(&src[..n]);
+            src = &src[n..];
+        }
+    }
+
     fn round_trips(is_text: bool, data: String) {
         let message = if is_text {
             Message::text(&data)
@@ -235,9 +258,7 @@ mod tests {
         let mut bytes = BytesMut::new();
         MessageCodec::new().encode(message.clone(), &mut bytes).unwrap();
 
-        let mut bytes = BytesMut::from(&bytes[..]);
-        let message2 = MessageCodec::new().decode(&mut bytes).unwrap().unwrap();
-        assert_eq!(0, bytes.len());
+        let message2 = decode(&mut MessageCodec::new(), &mut bytes).unwrap();
         assert_eq!(message, message2);
     }
 
@@ -263,9 +284,7 @@ mod tests {
             bytes.put(data);
         }
 
-        let mut bytes = BytesMut::from(&bytes[..]);
-        let message2 = MessageCodec::new().decode(&mut bytes).unwrap().unwrap();
-        assert_eq!(0, bytes.len());
+        let message2 = decode(&mut MessageCodec::new(), &bytes).unwrap();
         assert_eq!(is_text, message2.as_text().is_some());
         assert_eq!(data.as_bytes(), message2.data());
     }
