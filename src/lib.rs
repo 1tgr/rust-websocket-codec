@@ -28,7 +28,7 @@ use std::error;
 use std::result;
 
 /// Represents errors that can be exposed by this crate.
-pub type Error = Box<error::Error + 'static>;
+pub type Error = Box<dyn error::Error + 'static>;
 
 /// Represents results returned by the non-async functions in this crate.
 pub type Result<T> = result::Result<T, Error>;
